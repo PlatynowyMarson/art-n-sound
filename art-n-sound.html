@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Art’n’Sound — Kalendarz prób</title>
+<style>
+:root{color-scheme:dark;--bg:#121114;--card:#201e23;--ink:#fbf7ef;--muted:#c4bdc8;--line:#48424c;--accent:#e7ff75}*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.5 system-ui,sans-serif}
+main{max-width:1280px;margin:auto;padding:clamp(16px,4vw,60px)}
+header{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:28px}h1{font-size:clamp(3rem,10vw,8rem);line-height:.9;letter-spacing:-.085em;margin:.12em 0 .22em;font-weight:900;color:var(--accent)}p,h2,h3{margin:0 0 .65em}header p{font-size:1.15rem;margin:0}
+.layout{display:grid;grid-template-columns:minmax(0,2.35fr) minmax(245px,1fr);gap:24px;align-items:start}
+section,aside{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:clamp(12px,2vw,24px)}
+nav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}nav h2{flex:1 0 100%;text-transform:capitalize}
+button,input,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:8px;background:#302c35;color:var(--ink);padding:.42em .65em}button:hover{border-color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.accent{background:var(--accent);color:#151611;font-weight:750;border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.weekday{text-align:center;color:var(--muted);font-size:.875rem}
+.day{min-width:0;min-height:clamp(44px,7vw,80px);padding:4px;text-align:center;display:grid;justify-items:center;align-content:center}.day[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}.day[aria-current=date]{color:var(--accent);font-weight:800}
+.count{background:#e7ff75;color:#151611;border-radius:999px;min-width:1.4em;font-size:.82rem;font-weight:750}
+.agenda{margin-top:20px;border-top:1px solid var(--line);padding-top:18px}.agenda button{margin-bottom:8px}.entry{padding:12px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.entry p{white-space:pre-wrap}.muted,small{color:var(--muted)}.group{margin-top:20px}.group h3{color:var(--accent);font-size:1rem}.group ul{margin:0;padding-left:1.2em}.group li{margin-bottom:.45em}small{display:block;font-size:.875rem}a{color:var(--accent)}
+dialog{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:16px;width:min(540px,calc(100% - 24px));max-height:90vh;padding:20px}dialog::backdrop{background:#000a}label{display:block;margin:.6em 0}input:not([type=checkbox]),textarea{display:block;width:100%;padding:.45em;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:inherit}fieldset{border:1px solid var(--line);margin:12px 0;border-radius:8px}menu{display:flex;gap:8px;padding:0;margin:14px 0 0}footer{margin-top:20px;color:var(--muted)}@media(max-width:760px){.layout{grid-template-columns:1fr}}
+</style>
+<main>
+<header><h1>Art’n’Sound</h1><p>Kalendarz prób i repertuar</p></header>
+<div class="layout">
+<section aria-label="Kalendarz prób">
+<nav aria-label="Wybór miesiąca"><h2 id="month" aria-live="polite"></h2><button id="prev">Poprzedni</button><button id="today">Dzisiaj</button><button id="next">Następny</button></nav>
+<div class="grid" id="days"></div>
+<div class="agenda"><h3 id="selected" aria-live="polite"></h3><button class="accent" id="add">Dodaj próbę</button><div id="entries"></div></div>
+</section>
+<aside><h2>Repertuar</h2><div id="repertoire"></div><p><a href="https://docs.google.com/document/d/1Z8gwIWX0bXL759M_-K9_pgD1M1ux_SPgU75kBviL8Mw/edit?tab=t.0">Dokument źródłowy</a></p></aside>
+</div>
+<footer>Terminy zapisują się w tej przeglądarce.</footer>
+<noscript>Włącz JavaScript, aby korzystać z kalendarza.</noscript>
+</main>
+<dialog id="editor" aria-labelledby="editorTitle">
+<form id="form">
+<h2 id="editorTitle"></h2>
+<label>Nazwa próby<input name="title" required maxlength="100"></label>
+<label>Godzina<input type="time" name="time"></label>
+<label>Notatki<textarea name="notes" rows="2" maxlength="1500"></textarea></label>
+<fieldset><legend>Utwory na próbę</legend><div id="choices"></div></fieldset>
+<p id="error" role="alert"></p>
+<menu><button type="submit" class="accent">Zapisz</button><button type="button" id="cancel">Anuluj</button><button type="button" id="remove">Usuń próbę</button></menu>
+</form>
+</dialog>
+<script>
+const groups = {
+  'Zrobione': [['O niczym','LemON'],['Cicho','Ewa Farna'],['Ewakuacja','Ewa Farna'],['Dżaga','Virgin'],['Moja i twoja nadzieja','Hey'],['What’s New, Scooby-Doo?','Simple Plan']],
+  'Do poprawy': [['Bring Me to Life','Evanescence'],['Pakistańskie disco, ale to Marcin Turek','Popson'],['Jenny',''],['Aleja gwiazd','']],
+  'Pomysły': [['Judas — wersja metalowa','Lady Gaga'],['Utwór Nightwish do wyboru','']]
+};
+const songs = Object.values(groups).flat();
+const byId = id => document.getElementById(id);
+function element(tag, value, parent) {
+  const node = document.createElement(tag);
+  node.textContent = value;
+  parent.append(node);
+  return node;
+}
+for (const [group, tracks] of Object.entries(groups)) {
+  const block = element('div', '', byId('repertoire'));
+  block.className = 'group';
+  element('h3', group, block);
+  const list = element('ul', '', block);
+  for (const [title, artist] of tracks) {
+    const item = element('li', title, list);
+    if (artist) element('small', artist, item);
+  }
+}
+songs.forEach(([title], index) => {
+  const label = element('label', '', byId('choices'));
+  const box = element('input', '', label);
+  box.type = 'checkbox';
+  box.name = 'song';
+  box.value = index;
+  label.append(' ' + title);
+});
+const storageKey = 'art-n-sound.rehearsals.v1';
+let rehearsals = [];
+try {
+  const stored = JSON.parse(localStorage.getItem(storageKey));
+  if (Array.isArray(stored)) rehearsals = stored;
+} catch {}
+const now = new Date();
+let selected = now;
+let month = new Date(now.getFullYear(), now.getMonth(), 1);
+const monthLabel = new Intl.DateTimeFormat('pl-PL', {month:'long', year:'numeric'});
+const dateLabel = new Intl.DateTimeFormat('pl-PL', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+const dateKey = date => [date.getFullYear(), date.getMonth() + 1, date.getDate()].map((n,i) => String(n).padStart(i ? 2 : 4,'0')).join('-');
+const form = byId('form');
+const editor = byId('editor');
+let editing = null;
+function render(focusDate = false) {
+  byId('month').textContent = monthLabel.format(month);
+  const grid = byId('days');
+  grid.replaceChildren();
+  for (const label of ['Pon.','Wt.','Śr.','Czw.','Pt.','Sob.','Niedz.']) element('span',label,grid).className = 'weekday';
+  const year = month.getFullYear();
+  const number = month.getMonth();
+  for (let i = 0; i < (month.getDay() + 6) % 7; i++) element('span','',grid);
+  for (let i = 1; i <= new Date(year,number+1,0).getDate(); i++) {
+    const day = new Date(year,number,i);
+    const key = dateKey(day);
+    const count = rehearsals.filter(item => item.date === key).length;
+    const active = key === dateKey(selected);
+    const button = element('button', i, grid);
+    button.className = 'day';
+    button.setAttribute('aria-label', dateLabel.format(day) + (count ? ', liczba prób: ' + count : ''));
+    button.setAttribute('aria-pressed', active);
+    if (key === dateKey(new Date())) button.setAttribute('aria-current','date');
+    if (count) element('span', count, button).className = 'count';
+    button.onclick = () => { selected = day; render(true); };
+    if (active && focusDate) button.focus();
+  }
+  byId('selected').textContent = dateLabel.format(selected);
+  const entries = byId('entries');
+  entries.replaceChildren();
+  const list = rehearsals.filter(item => item.date === dateKey(selected)).sort((a,b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+  if (!list.length) element('p','Brak zaplanowanych prób.',entries).className = 'muted';
+  for (const item of list) {
+    const entry = element('article','',entries);
+    entry.className = 'entry';
+    element('h3', [item.time,item.title].filter(Boolean).join(' · '), entry);
+    if (item.notes) element('p',item.notes,entry);
+    if (item.songs.length) element('p',item.songs.map(index => songs[index][0]).join(' · '),entry);
+    const edit = element('button','Edytuj',entry);
+    edit.setAttribute('aria-label','Edytuj: ' + item.title);
+    edit.onclick = () => openEditor(item);
+  }
+}
+function openEditor(item = null) {
+  editing = item;
+  form.reset();
+  byId('error').textContent = '';
+  byId('editorTitle').textContent = item ? 'Edytuj próbę' : 'Dodaj próbę';
+  byId('remove').hidden = !item;
+  if (item) {
+    form.elements.title.value = item.title;
+    form.elements.time.value = item.time;
+    form.elements.notes.value = item.notes;
+    for (const box of form.querySelectorAll('[name=song]')) box.checked = item.songs.includes(Number(box.value));
+  }
+  editor.showModal();
+}
+function save(next) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(next));
+  } catch {
+    byId('error').textContent = 'Przeglądarka nie pozwoliła zapisać zmian.';
+    return;
+  }
+  rehearsals = next;
+  editor.close();
+  render();
+  byId('add').focus();
+}
+form.onsubmit = event => {
+  event.preventDefault();
+  const data = new FormData(form);
+  const title = data.get('title').trim();
+  if (!title) {
+    byId('error').textContent = 'Wpisz nazwę próby.';
+    form.elements.title.focus();
+    return;
+  }
+  const item = {date:dateKey(selected), title, time:data.get('time'), notes:data.get('notes').trim(), songs:data.getAll('song').map(Number)};
+  save([...rehearsals.filter(entry => entry !== editing), item]);
+};
+byId('cancel').onclick = () => editor.close();
+byId('remove').onclick = () => save(rehearsals.filter(item => item !== editing));
+function changeMonth(step) {
+  month = new Date(month.getFullYear(), month.getMonth() + step, 1);
+  selected = month;
+  render();
+}
+byId('prev').onclick = () => changeMonth(-1);
+byId('next').onclick = () => changeMonth(1);
+byId('today').onclick = () => {
+  selected = new Date();
+  month = new Date(selected.getFullYear(),selected.getMonth(),1);
+  render(true);
+};
+byId('add').onclick = () => openEditor();
+render();
+</script>
+</html>
